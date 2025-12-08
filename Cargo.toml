@@ -1,0 +1,44 @@
+[package]
+name = "opensesame"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["epistates, inc. <nick@epistates.com>"]
+description = "Cross-platform library for opening files in text editors with line:column positioning"
+license = "MIT"
+keywords = ["editor", "open", "file", "line", "column"]
+categories = ["command-line-utilities", "development-tools", "os"]
+repository = "https://github.com/epistates/opensesame"
+homepage = "https://github.com/epistates/opensesame"
+documentation = "https://docs.rs/opensesame"
+readme = "README.md"
+
+[dependencies]
+# Cross-platform executable lookup
+which = "8.0"
+
+# Error handling
+thiserror = "2.0"
+
+[dev-dependencies]
+# Testing
+tempfile = "3.15"
+
+[features]
+default = []
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Allow certain patterns
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+doc_markdown = "allow"  # Too noisy for editor names
+return_self_not_must_use = "allow"  # Builder pattern
+match_same_arms = "allow"  # Explicit is clearer for editor matching
+option_if_let_else = "allow"  # match is more readable
