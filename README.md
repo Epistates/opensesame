@@ -1,3 +1,6 @@
+[![Crates.io](https://img.shields.io/crates/v/opensesame.svg)](https://crates.io/crates/opensesame)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # opensesame
 
 A cross-platform Rust library for opening files in text editors with line:column positioning support.
