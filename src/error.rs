@@ -70,6 +70,13 @@ pub enum Error {
     /// Invalid position specified (line or column is 0).
     #[error("invalid position: line and column numbers must be >= 1")]
     InvalidPosition,
+
+    /// Invalid configuration was provided.
+    #[error("invalid editor configuration: {message}")]
+    InvalidConfig {
+        /// Description of the configuration error.
+        message: String,
+    },
 }
 
 impl Error {
@@ -89,6 +96,11 @@ impl Error {
             self,
             Self::SpawnFailed { .. } | Self::EditorFailed { .. } | Self::EditorTerminated { .. }
         )
+    }
+
+    /// Returns `true` if this error indicates invalid configuration.
+    pub const fn is_invalid_config(&self) -> bool {
+        matches!(self, Self::InvalidConfig { .. })
     }
 }
 
@@ -124,5 +136,19 @@ mod tests {
             path: PathBuf::from("/tmp/test.txt")
         }
         .is_file_not_found());
+
+        assert!(Error::InvalidConfig {
+            message: "test error".to_string()
+        }
+        .is_invalid_config());
+    }
+
+    #[test]
+    fn test_invalid_config_display() {
+        let err = Error::InvalidConfig {
+            message: "editor field is empty".to_string(),
+        };
+        assert!(err.to_string().contains("invalid editor configuration"));
+        assert!(err.to_string().contains("editor field is empty"));
     }
 }

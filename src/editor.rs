@@ -6,7 +6,10 @@
 use std::path::{Path, PathBuf};
 
 use crate::command::build_command;
-use crate::detect::{detect_editor, find_editor, find_editor_by_kind, DetectedEditor};
+use crate::config::{EditorConfig, ResolveFrom, DEFAULT_RESOLVE_ORDER, ENV_ONLY_RESOLVE_ORDER};
+use crate::detect::{
+    detect_editor, find_editor, find_editor_by_kind, resolve_editor_with_order, DetectedEditor,
+};
 use crate::error::{Error, Result};
 
 /// Known text editor types.
@@ -99,6 +102,127 @@ pub enum EditorKind {
 }
 
 impl EditorKind {
+    /// Parses an `EditorKind` from its string name.
+    ///
+    /// Accepts names like "VsCode", "NeoVim", "Vim", etc. The matching
+    /// is case-insensitive and supports common variations.
+    ///
+    /// Returns `None` for unrecognized names.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use opensesame::EditorKind;
+    ///
+    /// assert_eq!(EditorKind::from_name("NeoVim"), Some(EditorKind::NeoVim));
+    /// assert_eq!(EditorKind::from_name("vscode"), Some(EditorKind::VsCode));
+    /// assert_eq!(EditorKind::from_name("unknown"), None);
+    /// ```
+    pub fn from_name(name: &str) -> Option<Self> {
+        // Normalize: lowercase and remove common separators
+        let normalized = name.to_lowercase().replace(['-', '_'], "");
+
+        match normalized.as_str() {
+            // VS Code family
+            "vscode" | "visualstudiocode" | "code" => Some(Self::VsCode),
+            "vscodeinsiders" | "codeinsiders" => Some(Self::VsCodeInsiders),
+            "vscodium" | "codium" => Some(Self::VSCodium),
+            "cursor" => Some(Self::Cursor),
+            "windsurf" => Some(Self::Windsurf),
+
+            // Vim family
+            "vim" => Some(Self::Vim),
+            "neovim" | "nvim" => Some(Self::NeoVim),
+            "vi" => Some(Self::Vi),
+            "gvim" | "mvim" => Some(Self::GVim),
+
+            // Emacs family
+            "emacs" | "gnuemacs" | "xemacs" => Some(Self::Emacs),
+            "emacsclient" => Some(Self::EmacsClient),
+
+            // Modern GUI editors
+            "sublime" | "sublimetext" | "subl" => Some(Self::Sublime),
+            "zed" => Some(Self::Zed),
+            "helix" | "hx" => Some(Self::Helix),
+            "atom" => Some(Self::Atom),
+            "kate" => Some(Self::Kate),
+
+            // Terminal editors
+            "nano" => Some(Self::Nano),
+
+            // macOS editors
+            "textmate" | "mate" => Some(Self::TextMate),
+            "xcode" | "xed" => Some(Self::Xcode),
+
+            // Windows editors
+            "notepadplusplus" | "notepad++" | "npp" => Some(Self::NotepadPlusPlus),
+            "notepad" => Some(Self::Notepad),
+
+            // JetBrains family
+            "intellij" | "intellijidea" | "idea" => Some(Self::IntelliJ),
+            "webstorm" => Some(Self::WebStorm),
+            "phpstorm" | "pstorm" => Some(Self::PhpStorm),
+            "pycharm" | "charm" => Some(Self::PyCharm),
+            "rubymine" | "mine" => Some(Self::RubyMine),
+            "goland" => Some(Self::GoLand),
+            "clion" => Some(Self::CLion),
+            "rider" => Some(Self::Rider),
+            "datagrip" => Some(Self::DataGrip),
+            "androidstudio" | "studio" => Some(Self::AndroidStudio),
+
+            _ => None,
+        }
+    }
+
+    /// Returns the canonical string name for this editor kind.
+    ///
+    /// This is the preferred name for display and serialization.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use opensesame::EditorKind;
+    ///
+    /// assert_eq!(EditorKind::NeoVim.as_str(), "NeoVim");
+    /// assert_eq!(EditorKind::VsCode.as_str(), "VsCode");
+    /// ```
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::VsCode => "VsCode",
+            Self::VsCodeInsiders => "VsCodeInsiders",
+            Self::VSCodium => "VSCodium",
+            Self::Cursor => "Cursor",
+            Self::Windsurf => "Windsurf",
+            Self::Vim => "Vim",
+            Self::NeoVim => "NeoVim",
+            Self::Vi => "Vi",
+            Self::GVim => "GVim",
+            Self::Emacs => "Emacs",
+            Self::EmacsClient => "EmacsClient",
+            Self::Sublime => "Sublime",
+            Self::Zed => "Zed",
+            Self::Helix => "Helix",
+            Self::Atom => "Atom",
+            Self::Kate => "Kate",
+            Self::Nano => "Nano",
+            Self::TextMate => "TextMate",
+            Self::Xcode => "Xcode",
+            Self::NotepadPlusPlus => "NotepadPlusPlus",
+            Self::Notepad => "Notepad",
+            Self::IntelliJ => "IntelliJ",
+            Self::WebStorm => "WebStorm",
+            Self::PhpStorm => "PhpStorm",
+            Self::PyCharm => "PyCharm",
+            Self::RubyMine => "RubyMine",
+            Self::GoLand => "GoLand",
+            Self::CLion => "CLion",
+            Self::Rider => "Rider",
+            Self::DataGrip => "DataGrip",
+            Self::AndroidStudio => "AndroidStudio",
+            Self::Unknown => "Unknown",
+        }
+    }
+
     /// Detects the editor kind from a binary name.
     ///
     /// This handles both bare binary names (`vim`) and full paths
@@ -436,6 +560,22 @@ impl Editor {
 ///     .open()?;
 /// # Ok::<(), opensesame::Error>(())
 /// ```
+///
+/// # Configuration
+///
+/// Use [`with_config()`](Self::with_config) to provide editor preferences from your application's config:
+///
+/// ```rust,no_run
+/// use opensesame::{Editor, EditorConfig};
+///
+/// let config = EditorConfig::with_editor("nvim");
+///
+/// Editor::builder()
+///     .file("src/main.rs")
+///     .with_config(config)
+///     .open()?;
+/// # Ok::<(), opensesame::Error>(())
+/// ```
 #[derive(Debug, Default)]
 pub struct EditorBuilder {
     file: Option<PathBuf>,
@@ -443,6 +583,10 @@ pub struct EditorBuilder {
     column: Option<u32>,
     wait: bool,
     editor: Option<EditorSpec>,
+    /// Configs in priority order (first = highest priority).
+    configs: Vec<EditorConfig>,
+    /// Custom resolution order.
+    resolve_order: Option<Vec<ResolveFrom>>,
 }
 
 /// Specification for which editor to use.
@@ -507,6 +651,69 @@ impl EditorBuilder {
         self
     }
 
+    /// Adds a configuration to be checked during editor resolution.
+    ///
+    /// Multiple configs can be added. They are checked in the order added,
+    /// with earlier configs taking priority.
+    ///
+    /// The resolution order when configs are present (and no explicit editor is set):
+    /// 1. Configs (in order added)
+    /// 2. `$VISUAL` environment variable
+    /// 3. `$EDITOR` environment variable
+    /// 4. PATH search
+    ///
+    /// Use [`resolve_order()`](Self::resolve_order) to customize this behavior.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use opensesame::{Editor, EditorConfig};
+    ///
+    /// let user_config = EditorConfig::with_editor("nvim");
+    /// let app_defaults = EditorConfig::with_editor("code");
+    ///
+    /// Editor::builder()
+    ///     .file("test.rs")
+    ///     .with_config(user_config)    // Checked first
+    ///     .with_config(app_defaults)   // Checked second (fallback)
+    ///     .open()?;
+    /// # Ok::<(), opensesame::Error>(())
+    /// ```
+    pub fn with_config(mut self, config: EditorConfig) -> Self {
+        self.configs.push(config);
+        self
+    }
+
+    /// Sets the order in which editor sources are checked.
+    ///
+    /// By default, when configs are provided, the order is:
+    /// `[Config, Visual, Editor, PathSearch]`
+    ///
+    /// Without configs, the legacy order is used:
+    /// `[Visual, Editor, PathSearch]`
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use opensesame::{Editor, ResolveFrom};
+    ///
+    /// // Ignore environment variables, only use PATH search
+    /// Editor::builder()
+    ///     .file("test.rs")
+    ///     .resolve_order(&[ResolveFrom::PathSearch])
+    ///     .open()?;
+    /// # Ok::<(), opensesame::Error>(())
+    /// ```
+    ///
+    /// # Predefined Orders
+    ///
+    /// - [`DEFAULT_RESOLVE_ORDER`](crate::DEFAULT_RESOLVE_ORDER): `[Config, Visual, Editor, PathSearch]`
+    /// - [`ENV_ONLY_RESOLVE_ORDER`](crate::ENV_ONLY_RESOLVE_ORDER): `[Visual, Editor, PathSearch]`
+    pub fn resolve_order(mut self, order: &[ResolveFrom]) -> Self {
+        self.resolve_order = Some(order.to_vec());
+        self
+    }
+
     /// Opens the file in the editor.
     ///
     /// This method spawns the editor process. For GUI editors, it returns
@@ -565,11 +772,28 @@ impl EditorBuilder {
 
     /// Resolves which editor to use.
     fn resolve_editor(&self) -> Result<DetectedEditor> {
-        match &self.editor {
-            Some(EditorSpec::Kind(kind)) => find_editor_by_kind(*kind),
-            Some(EditorSpec::Binary(binary)) => find_editor(binary),
-            None => detect_editor(),
+        // If an explicit editor was set via .editor() or .editor_binary(), use it
+        // This always takes highest priority and bypasses all resolution logic
+        if let Some(ref spec) = self.editor {
+            return match spec {
+                EditorSpec::Kind(kind) => find_editor_by_kind(*kind),
+                EditorSpec::Binary(binary) => find_editor(binary),
+            };
         }
+
+        // Determine the resolution order
+        let order = if let Some(ref custom_order) = self.resolve_order {
+            // Use custom order if explicitly set
+            custom_order.as_slice()
+        } else if !self.configs.is_empty() {
+            // With configs, use default order (includes Config)
+            DEFAULT_RESOLVE_ORDER
+        } else {
+            // Without configs, use legacy behavior (env vars + PATH)
+            ENV_ONLY_RESOLVE_ORDER
+        };
+
+        resolve_editor_with_order(order, &self.configs)
     }
 }
 
@@ -640,5 +864,105 @@ mod tests {
             .column(0)
             .open();
         assert!(matches!(result, Err(Error::InvalidPosition)));
+    }
+
+    #[test]
+    fn test_editor_kind_from_name() {
+        // Case insensitive
+        assert_eq!(EditorKind::from_name("NeoVim"), Some(EditorKind::NeoVim));
+        assert_eq!(EditorKind::from_name("neovim"), Some(EditorKind::NeoVim));
+        assert_eq!(EditorKind::from_name("NEOVIM"), Some(EditorKind::NeoVim));
+
+        // With separators
+        assert_eq!(EditorKind::from_name("vs-code"), Some(EditorKind::VsCode));
+        assert_eq!(EditorKind::from_name("vs_code"), Some(EditorKind::VsCode));
+
+        // Aliases
+        assert_eq!(EditorKind::from_name("nvim"), Some(EditorKind::NeoVim));
+        assert_eq!(EditorKind::from_name("code"), Some(EditorKind::VsCode));
+        assert_eq!(EditorKind::from_name("subl"), Some(EditorKind::Sublime));
+        assert_eq!(EditorKind::from_name("hx"), Some(EditorKind::Helix));
+        assert_eq!(EditorKind::from_name("idea"), Some(EditorKind::IntelliJ));
+
+        // Unknown returns None
+        assert_eq!(EditorKind::from_name("unknown"), None);
+        assert_eq!(EditorKind::from_name(""), None);
+    }
+
+    #[test]
+    fn test_editor_kind_as_str() {
+        assert_eq!(EditorKind::VsCode.as_str(), "VsCode");
+        assert_eq!(EditorKind::NeoVim.as_str(), "NeoVim");
+        assert_eq!(EditorKind::Helix.as_str(), "Helix");
+        assert_eq!(EditorKind::IntelliJ.as_str(), "IntelliJ");
+        assert_eq!(EditorKind::Unknown.as_str(), "Unknown");
+    }
+
+    #[test]
+    fn test_editor_kind_roundtrip() {
+        // Test that from_name(as_str()) returns the same kind
+        let kinds = [
+            EditorKind::VsCode,
+            EditorKind::NeoVim,
+            EditorKind::Vim,
+            EditorKind::Emacs,
+            EditorKind::Sublime,
+            EditorKind::Zed,
+            EditorKind::Helix,
+            EditorKind::Cursor,
+            EditorKind::Windsurf,
+            EditorKind::IntelliJ,
+        ];
+
+        for kind in kinds {
+            let name = kind.as_str();
+            let parsed = EditorKind::from_name(name);
+            assert_eq!(parsed, Some(kind), "roundtrip failed for {kind:?}");
+        }
+    }
+
+    #[test]
+    fn test_builder_with_config_stores_config() {
+        let config = EditorConfig::with_editor("nvim");
+        let builder = Editor::builder()
+            .file("test.rs")
+            .with_config(config);
+
+        assert_eq!(builder.configs.len(), 1);
+        assert_eq!(builder.configs[0].editor.as_deref(), Some("nvim"));
+    }
+
+    #[test]
+    fn test_builder_with_multiple_configs() {
+        let config1 = EditorConfig::with_editor("nvim");
+        let config2 = EditorConfig::with_editor("code");
+        let builder = Editor::builder()
+            .file("test.rs")
+            .with_config(config1)
+            .with_config(config2);
+
+        assert_eq!(builder.configs.len(), 2);
+        assert_eq!(builder.configs[0].editor.as_deref(), Some("nvim"));
+        assert_eq!(builder.configs[1].editor.as_deref(), Some("code"));
+    }
+
+    #[test]
+    fn test_builder_resolve_order_stores_order() {
+        let builder = Editor::builder()
+            .file("test.rs")
+            .resolve_order(&[ResolveFrom::PathSearch, ResolveFrom::Visual]);
+
+        assert!(builder.resolve_order.is_some());
+        let order = builder.resolve_order.unwrap();
+        assert_eq!(order.len(), 2);
+        assert_eq!(order[0], ResolveFrom::PathSearch);
+        assert_eq!(order[1], ResolveFrom::Visual);
+    }
+
+    #[test]
+    fn test_builder_default_has_empty_configs() {
+        let builder = Editor::builder();
+        assert!(builder.configs.is_empty());
+        assert!(builder.resolve_order.is_none());
     }
 }

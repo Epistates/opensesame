@@ -1,6 +1,6 @@
 [package]
 name = "opensesame"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["epistates, inc. <nick@epistates.com>"]
@@ -20,12 +20,20 @@ which = "8.0"
 # Error handling
 thiserror = "2.0"
 
+# Optional serde support for config deserialization
+serde = { version = "1.0", optional = true, features = ["derive"] }
+
 [dev-dependencies]
 # Testing
 tempfile = "3.15"
 
+# For serde tests
+serde_json = "1.0"
+
 [features]
 default = []
+# Enable serde support for EditorConfig
+serde = ["dep:serde"]
 
 [lints.rust]
 unsafe_code = "forbid"

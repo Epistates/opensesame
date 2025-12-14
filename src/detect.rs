@@ -1,8 +1,9 @@
 //! Editor detection module.
 //!
 //! This module handles finding the user's preferred editor through various
-//! mechanisms: environment variables, PATH search, and platform defaults.
+//! mechanisms: configuration, environment variables, and PATH search.
 
+use crate::config::{EditorConfig, ResolveFrom};
 use crate::editor::EditorKind;
 use crate::error::{Error, Result};
 
@@ -62,6 +63,96 @@ pub fn detect_editor() -> Result<DetectedEditor> {
     }
 
     Err(Error::NoEditorFound)
+}
+
+/// Resolves an editor using the specified resolution order.
+///
+/// This function checks each source in the given order and returns the first
+/// editor that can be found. Use this when you need custom resolution behavior.
+///
+/// # Arguments
+///
+/// * `order` - The order in which to check sources
+/// * `configs` - Configurations passed via [`EditorBuilder::with_config()`](crate::EditorBuilder::with_config)
+///
+/// # Errors
+///
+/// Returns `Error::NoEditorFound` if no editor could be detected from any source.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use opensesame::detect::{resolve_editor_with_order, ResolveFrom};
+///
+/// let order = &[ResolveFrom::Config, ResolveFrom::PathSearch];
+/// let configs = vec![EditorConfig::with_editor("nvim")];
+/// let editor = resolve_editor_with_order(order, &configs)?;
+/// ```
+pub fn resolve_editor_with_order(
+    order: &[ResolveFrom],
+    configs: &[EditorConfig],
+) -> Result<DetectedEditor> {
+    for source in order {
+        match source {
+            ResolveFrom::Config => {
+                for (index, config) in configs.iter().enumerate() {
+                    if let Some(editor) = try_config(config, index) {
+                        return Ok(editor);
+                    }
+                }
+            }
+            ResolveFrom::Visual => {
+                if let Some(editor) = try_env_var("VISUAL") {
+                    return Ok(editor);
+                }
+            }
+            ResolveFrom::Editor => {
+                if let Some(editor) = try_env_var("EDITOR") {
+                    return Ok(editor);
+                }
+            }
+            ResolveFrom::PathSearch => {
+                if let Some(editor) = search_path_for_editor() {
+                    return Ok(editor);
+                }
+            }
+        }
+    }
+
+    Err(Error::NoEditorFound)
+}
+
+/// Attempts to create a `DetectedEditor` from an `EditorConfig`.
+///
+/// Returns `None` if the config doesn't specify an editor or the editor
+/// isn't available.
+fn try_config(config: &EditorConfig, index: usize) -> Option<DetectedEditor> {
+    // Try editor binary first (more specific)
+    if let Some(ref binary) = config.editor {
+        if which::which(binary).is_ok() {
+            return Some(DetectedEditor {
+                binary: binary.clone(),
+                kind: EditorKind::from_binary(binary),
+                extra_args: config.args.clone(),
+                source: EditorSource::Config { index },
+            });
+        }
+    }
+
+    // Try editor_kind (fallback to default binary)
+    if let Some(ref kind_config) = config.editor_kind {
+        let binary = kind_config.0.default_binary();
+        if which::which(binary).is_ok() {
+            return Some(DetectedEditor {
+                binary: binary.to_string(),
+                kind: kind_config.0,
+                extra_args: config.args.clone(),
+                source: EditorSource::Config { index },
+            });
+        }
+    }
+
+    None
 }
 
 /// Attempts to get an editor from an environment variable.
@@ -201,11 +292,17 @@ pub enum EditorSource {
     PathSearch,
     /// Explicitly specified by the user.
     Explicit,
+    /// From application configuration.
+    Config {
+        /// Index of the config in the resolution chain (0 = highest priority).
+        index: usize,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{DEFAULT_RESOLVE_ORDER, ENV_ONLY_RESOLVE_ORDER};
 
     #[test]
     fn test_editor_source_equality() {
@@ -221,10 +318,53 @@ mod tests {
     }
 
     #[test]
+    fn test_editor_source_config_equality() {
+        assert_eq!(
+            EditorSource::Config { index: 0 },
+            EditorSource::Config { index: 0 }
+        );
+        assert_ne!(
+            EditorSource::Config { index: 0 },
+            EditorSource::Config { index: 1 }
+        );
+        assert_ne!(EditorSource::Config { index: 0 }, EditorSource::PathSearch);
+    }
+
+    #[test]
     fn test_fallback_order() {
         // Verify our fallback list has the expected order
         assert_eq!(FALLBACK_EDITORS[0], "code");
         assert!(FALLBACK_EDITORS.contains(&"vim"));
         assert!(FALLBACK_EDITORS.contains(&"nano"));
+    }
+
+    #[test]
+    fn test_resolve_with_empty_order_fails() {
+        let result = resolve_editor_with_order(&[], &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_with_empty_configs_and_config_source() {
+        // When Config is in order but no configs provided, should fall through
+        let result = resolve_editor_with_order(&[ResolveFrom::Config], &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_try_config_with_empty_config() {
+        let config = EditorConfig::default();
+        let result = try_config(&config, 0);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_default_resolve_order_has_config_first() {
+        assert_eq!(DEFAULT_RESOLVE_ORDER[0], ResolveFrom::Config);
+    }
+
+    #[test]
+    fn test_env_only_resolve_order_excludes_config() {
+        assert!(!ENV_ONLY_RESOLVE_ORDER.contains(&ResolveFrom::Config));
     }
 }

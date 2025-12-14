@@ -88,11 +88,59 @@
 //! | Notepad++ | `notepad++` | ✓ |
 //! | JetBrains IDEs | `idea`, `webstorm`, etc. | Line only |
 //! | Xcode | `xed` | Line only |
+//!
+//! ## Configuration
+//!
+//! Applications can pass editor configuration to opensesame:
+//!
+//! ```rust,no_run
+//! use opensesame::{Editor, EditorConfig};
+//!
+//! let config = EditorConfig {
+//!     editor: Some("nvim".to_string()),
+//!     args: vec!["--noplugin".to_string()],
+//!     ..Default::default()
+//! };
+//!
+//! Editor::builder()
+//!     .file("src/main.rs")
+//!     .with_config(config)
+//!     .open()?;
+//! # Ok::<(), opensesame::Error>(())
+//! ```
+//!
+//! ### Custom Resolution Order
+//!
+//! Control how editors are detected:
+//!
+//! ```rust,no_run
+//! use opensesame::{Editor, ResolveFrom};
+//!
+//! // Ignore config, only use environment variables
+//! Editor::builder()
+//!     .file("src/main.rs")
+//!     .resolve_order(&[ResolveFrom::Visual, ResolveFrom::Editor])
+//!     .open()?;
+//! # Ok::<(), opensesame::Error>(())
+//! ```
+//!
+//! ### Serde Support
+//!
+//! Enable the `serde` feature for config file deserialization:
+//!
+//! ```toml
+//! [dependencies]
+//! opensesame = { version = "0.1", features = ["serde"] }
+//! ```
 
+mod command;
+mod config;
+mod detect;
 mod editor;
 mod error;
-mod detect;
-mod command;
 
+pub use config::{
+    EditorConfig, EditorKindConfig, ResolveFrom, DEFAULT_RESOLVE_ORDER, ENV_ONLY_RESOLVE_ORDER,
+};
 pub use editor::{Editor, EditorBuilder, EditorKind};
 pub use error::{Error, Result};
